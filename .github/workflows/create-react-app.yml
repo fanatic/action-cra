@@ -3,15 +3,73 @@ name: Create React App Workflow
 on:
   workflow_call:
     inputs:
-      username:
+      staging_app_name:
+        required: true
+        type: string
+      production_app_name:
         required: true
         type: string
 
 jobs:
-  build:
+  lint:
     runs-on: ubuntu-latest
     steps:
-      - run: echo ${{ inputs.username }}
+      - uses: actions/checkout@v2
+      - run: node_modules/.bin/eslint --ext js src
+
+  bundle-analyzer:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: carlesnunez/check-my-bundlephobia@v1
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          ignore-dev-dependencies: true
+
+  ld-code-refs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          fetch-depth: 11 # This value must be set if the lookback configuration option is not disabled for find-code-references. Read more: https://github.com/launchdarkly/ld-find-code-refs#searching-for-unused-flags-extinctions
+      - name: LaunchDarkly Code References
+        uses: launchdarkly/find-code-references@v9
+        with:
+          githubToken: ${{ secrets.GITHUB_TOKEN }}
+          accessToken: ${{ secrets.LD_ACCESS_TOKEN }}
+          projKey: YOUR_PROJECT_KEY
+          baseUri: https://app.launchdarkly.com
+
+  # lighthouse-check:
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@master
+  #     - run: mkdir /tmp/artifacts
+  #     - name: Run Lighthouse
+  #       uses: foo-software/lighthouse-check-action@master
+  #       with:
+  #         accessToken: ${{ secrets.LIGHTHOUSE_CHECK_GITHUB_ACCESS_TOKEN }}
+  #         author: ${{ github.actor }}
+  #         awsAccessKeyId: ${{ secrets.LIGHTHOUSE_CHECK_AWS_ACCESS_KEY_ID }}
+  #         awsBucket: ${{ secrets.LIGHTHOUSE_CHECK_AWS_BUCKET }}
+  #         awsRegion: ${{ secrets.LIGHTHOUSE_CHECK_AWS_REGION }}
+  #         awsSecretAccessKey: ${{ secrets.LIGHTHOUSE_CHECK_AWS_SECRET_ACCESS_KEY }}
+  #         branch: ${{ github.ref }}
+  #         outputDirectory: /tmp/artifacts
+  #         urls: 'https://www.foo.software,https://www.foo.software/contact'
+  #         sha: ${{ github.sha }}
+  #         slackWebhookUrl: ${{ secrets.LIGHTHOUSE_CHECK_WEBHOOK_URL }}
+  #     - name: Upload artifacts
+  #       uses: actions/upload-artifact@master
+  #       with:
+  #         name: Lighthouse reports
+  #         path: /tmp/artifacts
+
+  build:
+    runs-on: ubuntu-latest
+    environment:
+      name: staging
+      url: https://${{ inputs.staging_app_name }}.herokuapp.com
+    steps:
       - uses: actions/checkout@v2
       - uses: actions/setup-node@v1
       - uses: actions/cache@v2
@@ -24,4 +82,51 @@ jobs:
         env:
           CI: true
       - run: yarn run build
-      - run: npm run deploy
+      - name: Deploy to Heroku (Stage)
+        run: true
+      - name: Healthcheck
+        run: true
+      - name: Rollback on failure
+        run: true
+      - name: Create Sentry release
+        uses: getsentry/action-release@v1
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
+        with:
+          environment: production
+
+  cypress-run:
+    runs-on: ubuntu-20.04
+    steps:
+      - uses: actions/checkout@v2
+      - uses: cypress-io/github-action@v2
+      - uses: actions/upload-artifact@v1
+        if: failure()
+        with:
+          name: cypress-screenshots
+          path: cypress/screenshots
+      - uses: actions/upload-artifact@v1
+        if: always()
+        with:
+          name: cypress-videos
+          path: cypress/videos
+
+  promote:
+    runs-on: ubuntu-latest
+    needs: build
+    environment:
+      name: production
+      url: https://${{ inputs.production_app_name }.herokuapp.com
+    steps:
+      - name: Heroku Pipeline promote
+        run: true
+      - name: Create Sentry release
+        uses: getsentry/action-release@v1
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
+        with:
+          environment: production
