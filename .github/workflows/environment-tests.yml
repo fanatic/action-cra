@@ -14,4 +14,24 @@ jobs:
           TERM: linux # fix tput for tty issue work around
         run: |
           bash --version
-          bash -c "time env.test/bats/bin/bats  --print-output-on-failure --formatter tap env.test"
+          bash -c "time env.test/bats/bin/bats  --print-output-on-failure --formatter tap env.test/test.bats"
+  ubuntu-2004-docker:
+    runs-on: ubuntu-20.04
+    container:
+      image: bitnami/git:latest
+      options: --cpus 1 --memory 512M
+    services:
+      redis:
+        image: redis
+        ports:
+          - 6379:6379
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          submodules: recursive
+      - shell: 'script -q -e -c "bash {0}"' # work around tty issues
+        env:
+          TERM: linux # fix tput for tty issue work around
+        run: |
+          bash --version
+          bash -c "time env.test/bats/bin/bats  --print-output-on-failure --formatter tap env.test/docker.bats"
